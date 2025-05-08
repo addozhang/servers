@@ -16,7 +16,8 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   return response.text();
 }
 
-export function buildUrl(baseUrl: string, params: Record<string, string | number | undefined>): string {
+export function buildUrl(urlOrPath: string, params: Record<string, string | number | undefined>): string {
+  const baseUrl = urlOrPath.startsWith('http') ? urlOrPath : buildGitHubUrl(urlOrPath);
   const url = new URL(baseUrl);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined) {
@@ -28,8 +29,21 @@ export function buildUrl(baseUrl: string, params: Record<string, string | number
 
 const USER_AGENT = `modelcontextprotocol/servers/github/v${VERSION} ${getUserAgent()}`;
 
+// Get the configured GitHub API URL, defaulting to public GitHub if not specified
+function getGitHubApiUrl(): string {
+  return process.env.GITHUB_API_URL?.replace(/\/$/, '') || 'https://api.github.com';
+}
+
+// Convert relative GitHub API paths to full URLs
+function buildGitHubUrl(path: string): string {
+  const baseUrl = getGitHubApiUrl();
+  // Remove leading slash if present to avoid double slashes
+  const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+  return `${baseUrl}/${cleanPath}`;
+}
+
 export async function githubRequest(
-  url: string,
+  urlOrPath: string,
   options: RequestOptions = {}
 ): Promise<unknown> {
   const headers: Record<string, string> = {
@@ -43,6 +57,8 @@ export async function githubRequest(
     headers["Authorization"] = `Bearer ${process.env.GITHUB_PERSONAL_ACCESS_TOKEN}`;
   }
 
+  // Convert URL if it's a relative path
+  const url = urlOrPath.startsWith('http') ? urlOrPath : buildGitHubUrl(urlOrPath);
   const response = await fetch(url, {
     method: options.method || "GET",
     headers,
@@ -114,7 +130,7 @@ export async function checkBranchExists(
 ): Promise<boolean> {
   try {
     await githubRequest(
-      `https://api.github.com/repos/${owner}/${repo}/branches/${branch}`
+      `repos/${owner}/${repo}/branches/${branch}`
     );
     return true;
   } catch (error) {
@@ -127,7 +143,7 @@ export async function checkBranchExists(
 
 export async function checkUserExists(username: string): Promise<boolean> {
   try {
-    await githubRequest(`https://api.github.com/users/${username}`);
+    await githubRequest(`users/${username}`);
     return true;
   } catch (error) {
     if (error && typeof error === "object" && "status" in error && error.status === 404) {
